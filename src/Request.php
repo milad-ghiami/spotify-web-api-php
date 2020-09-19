@@ -64,7 +64,7 @@ class Request
     }
 
     /**
-     * Parse HTTP response headers.
+     * Parse HTTP response headers and normalize names.
      *
      * @param string $headers The raw, unparsed response headers.
      *
@@ -79,8 +79,9 @@ class Request
 
         $parsedHeaders = [];
         foreach ($headers as $header) {
-            list($key, $value) = explode(':', $header, 2);
+            [$key, $value] = explode(':', $header, 2);
 
+            $key = strtolower($key);
             $parsedHeaders[$key] = trim($value);
         }
 
