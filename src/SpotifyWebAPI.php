@@ -56,6 +56,49 @@ class SpotifyWebAPI
     }
 
     /**
+     * Try to fetch a snapshot ID from a response.
+     *
+     * @param string object|array The parsed response body.
+     *
+     * @return string|bool A snapshot ID or false if none exists.
+     */
+    protected function getSnapshotId($body)
+    {
+        if (isset($body->snapshot_id)) {
+            return $body->snapshot_id;
+        }
+
+        if (isset($body['snapshot_id'])) {
+            return $body['snapshot_id'];
+        }
+
+        return false;
+    }
+
+    /**
+     * Convert Spotify object IDs to URIs.
+     *
+     * @param array|string $ids ID(s) to convert.
+     * @param string $type Spotify object type.
+     *
+     * @return array|string URI(s).
+     */
+    protected function idToUri($ids, $type)
+    {
+        $type = 'spotify:' . $type . ':';
+
+        $ids = array_map(function ($id) use ($type) {
+            if (substr($id, 0, strlen($type)) != $type && substr($id, 0, 7) != 'spotify') {
+                $id = $type . $id;
+            }
+
+            return $id;
+        }, (array) $ids);
+
+        return count($ids) == 1 ? $ids[0] : $ids;
+    }
+
+    /**
      * Send a request to the Spotify API, automatically refreshing the access token as needed.
      *
      * @param string $method The HTTP method to use.
@@ -105,29 +148,6 @@ class SpotifyWebAPI
     }
 
     /**
-     * Convert Spotify object IDs to URIs.
-     *
-     * @param array|string $ids ID(s) to convert.
-     * @param string $type Spotify object type.
-     *
-     * @return array|string URI(s).
-     */
-    protected function idToUri($ids, $type)
-    {
-        $type = 'spotify:' . $type . ':';
-
-        $ids = array_map(function ($id) use ($type) {
-            if (substr($id, 0, strlen($type)) != $type && substr($id, 0, 7) != 'spotify') {
-                $id = $type . $id;
-            }
-
-            return $id;
-        }, (array) $ids);
-
-        return count($ids) == 1 ? $ids[0] : $ids;
-    }
-
-    /**
      * Convert URIs to Spotify object IDs.
      *
      * @param array|string $uriIds URI(s) to convert.
@@ -147,23 +167,19 @@ class SpotifyWebAPI
     }
 
     /**
-     * Try to fetch a snapshot ID from a response.
+     * Convert an array to a comma-separated string. If it's already a string, do nothing.
      *
-     * @param string object|array The parsed response body.
+     * @param array|string The value to convert.
      *
-     * @return string|bool A snapshot ID or false if none exists.
+     * @return string A comma-separated string.
      */
-    protected function getSnapshotId($body)
+    protected function toCommaString($value)
     {
-        if (isset($body->snapshot_id)) {
-            return $body->snapshot_id;
+        if (is_array($value)) {
+            return implode(',', $value);
         }
 
-        if (isset($body['snapshot_id'])) {
-            return $body['snapshot_id'];
-        }
-
-        return false;
+        return $value;
     }
 
     /**
@@ -251,8 +267,10 @@ class SpotifyWebAPI
      */
     public function addPlaylistTracks($playlistId, $tracks, $options = [])
     {
-        $options = (array) $options;
-        $options['uris'] = (array) $this->idToUri($tracks, 'track');
+        $options = array_merge((array) $options, [
+            'uris' => (array) $this->idToUri($tracks, 'track')
+        ]);
+
         $options = json_encode($options);
 
         $headers = [
@@ -280,8 +298,10 @@ class SpotifyWebAPI
      */
     public function changeMyDevice($options)
     {
-        $options = (array) $options;
-        $options['device_ids'] = (array) $options['device_ids'];
+        $options = array_merge((array) $options, [
+            'device_ids' => (array) $options['device_ids'],
+        ]);
+
         $options = json_encode($options);
 
         $headers = [
@@ -354,7 +374,7 @@ class SpotifyWebAPI
     public function currentUserFollows($type, $ids)
     {
         $ids = $this->uriToId($ids, $type);
-        $ids = implode(',', (array) $ids);
+        $ids = $this->toCommaString($ids);
 
         $options = [
             'ids' => $ids,
@@ -534,7 +554,7 @@ class SpotifyWebAPI
      */
     public function followPlaylist($playlistId, $options = [])
     {
-        $options = json_encode((object) $options);
+        $options = json_encode($options);
 
         $headers = [
             'Content-Type' => 'application/json',
@@ -582,9 +602,9 @@ class SpotifyWebAPI
     public function getAlbums($albumIds, $options = [])
     {
         $albumIds = $this->uriToId($albumIds, 'album');
-
-        $options = (array) $options;
-        $options['ids'] = implode(',', (array) $albumIds);
+        $options = array_merge((array) $options, [
+            'ids' => $this->toCommaString($albumIds),
+        ]);
 
         $uri = '/v1/albums/';
 
@@ -644,7 +664,7 @@ class SpotifyWebAPI
     public function getArtists($artistIds)
     {
         $artistIds = $this->uriToId($artistIds, 'artist');
-        $artistIds = implode(',', (array) $artistIds);
+        $artistIds = $this->toCommaString($artistIds);
 
         $options = [
             'ids' => $artistIds,
@@ -681,8 +701,8 @@ class SpotifyWebAPI
      *
      * @param string $artistId ID or URI of the artist.
      * @param array|object $options Optional. Options for the albums.
-     * - string|array album_type Optional. Album types to return. If omitted, all album types will be returned.
-     * - string market Optional. Limit the results to items that are playable in this market, for example SE.
+     * - string country Optional. Limit the results to items that are playable in this country, for example SE.
+     * - string|array include_groups Optional. Album types to return. If omitted, all album types will be returned.
      * - int limit Optional. Limit the number of albums.
      * - int offset Optional. Number of albums to skip.
      *
@@ -692,8 +712,13 @@ class SpotifyWebAPI
     {
         $options = (array) $options;
 
-        if (isset($options['album_type'])) {
-            $options['album_type'] = implode(',', (array) $options['album_type']);
+        if (isset($options['album_type']) || isset($options['include_groups'])) {
+            // TODO: Temp check, remove "album_type" in next major version
+            $values = $options['album_type'] ?? $options['include_groups'];
+
+            $options['include_groups'] = $this->toCommaString($values);
+
+            unset($options['album_type']);
         }
 
         $artistId = $this->uriToId($artistId, 'artist');
@@ -736,7 +761,7 @@ class SpotifyWebAPI
     {
         $trackIds = $this->uriToId($trackIds, 'track');
         $options = [
-            'ids' => implode(',', (array) $trackIds),
+            'ids' => $this->toCommaString($trackIds),
         ];
 
         $uri = '/v1/audio-features';
@@ -861,7 +886,9 @@ class SpotifyWebAPI
     public function getEpisodes($episodeIds, $options = [])
     {
         $episodeIds = $this->uriToId($episodeIds, 'episode');
-        $options['ids'] = implode(',', (array) $episodeIds);
+        $options = array_merge((array) $options, [
+            'ids' => $this->toCommaString($episodeIds),
+        ]);
 
         $uri = '/v1/episodes/';
 
@@ -934,9 +961,10 @@ class SpotifyWebAPI
     public function getMyCurrentTrack($options = [])
     {
         $uri = '/v1/me/player/currently-playing';
+        $options = (array) $options;
 
-        if (isset($options['additional_types']) && is_array($options['additional_types'])) {
-            $options['additional_types'] = implode(',', $options['additional_types']);
+        if (isset($options['additional_types'])) {
+            $options['additional_types'] = $this->toCommaString($options['additional_types']);
         }
 
         $this->lastResponse = $this->sendRequest('GET', $uri, $options);
@@ -972,9 +1000,10 @@ class SpotifyWebAPI
     public function getMyCurrentPlaybackInfo($options = [])
     {
         $uri = '/v1/me/player';
+        $options = (array) $options;
 
-        if (isset($options['additional_types']) && is_array($options['additional_types'])) {
-            $options['additional_types'] = implode(',', $options['additional_types']);
+        if (isset($options['additional_types'])) {
+            $options['additional_types'] = $this->toCommaString($options['additional_types']);
         }
 
         $this->lastResponse = $this->sendRequest('GET', $uri, $options);
@@ -1015,8 +1044,6 @@ class SpotifyWebAPI
       */
     public function getMyRecentTracks($options = [])
     {
-        $options = (array) $options;
-
         $uri = '/v1/me/player/recently-played';
 
         $this->lastResponse = $this->sendRequest('GET', $uri, $options);
@@ -1140,7 +1167,7 @@ class SpotifyWebAPI
         $options = (array) $options;
 
         if (isset($options['fields'])) {
-            $options['fields'] = implode(',', (array) $options['fields']);
+            $options['fields'] = $this->toCommaString($options['fields']);
         }
 
         $playlistId = $this->uriToId($playlistId, 'playlist');
@@ -1148,6 +1175,25 @@ class SpotifyWebAPI
         $uri = '/v1/playlists/' . $playlistId;
 
         $this->lastResponse = $this->sendRequest('GET', $uri, $options);
+
+        return $this->lastResponse['body'];
+    }
+
+    /**
+     * Get a playlist's cover image.
+     * https://developer.spotify.com/documentation/web-api/reference/playlists/get-playlist-cover/
+     *
+     * @param string $playlistId ID or URI of the playlist.
+     *
+     * @return array|object The playlist cover image. Type is controlled by the `return_assoc` option.
+     */
+    public function getPlaylistImage($playlistId)
+    {
+        $playlistId = $this->uriToId($playlistId, 'playlist');
+
+        $uri = '/v1/playlists/' . $playlistId . '/images';
+
+        $this->lastResponse = $this->sendRequest('GET', $uri);
 
         return $this->lastResponse['body'];
     }
@@ -1170,7 +1216,7 @@ class SpotifyWebAPI
         $options = (array) $options;
 
         if (isset($options['fields'])) {
-            $options['fields'] = implode(',', (array) $options['fields']);
+            $options['fields'] = $this->toCommaString($options['fields']);
         }
 
         $playlistId = $this->uriToId($playlistId, 'playlist');
@@ -1204,7 +1250,7 @@ class SpotifyWebAPI
 
         array_walk($options, function (&$value, $key) {
             if (substr($key, 0, 5) == 'seed_') {
-                $value = implode(',', $value);
+                $value = $this->toCommaString($value);
             }
         });
 
@@ -1280,7 +1326,9 @@ class SpotifyWebAPI
     public function getShows($showIds, $options = [])
     {
         $showIds = $this->uriToId($showIds, 'show');
-        $options['ids'] = implode(',', (array) $showIds);
+        $options = array_merge((array) $options, [
+            'ids' => $this->toCommaString($showIds),
+        ]);
 
         $uri = '/v1/shows/';
 
@@ -1322,7 +1370,9 @@ class SpotifyWebAPI
     public function getTracks($trackIds, $options = [])
     {
         $trackIds = $this->uriToId($trackIds, 'track');
-        $options['ids'] = implode(',', (array) $trackIds);
+        $options = array_merge((array) $options, [
+            'ids' => $this->toCommaString($trackIds),
+        ]);
 
         $uri = '/v1/tracks/';
 
@@ -1421,7 +1471,7 @@ class SpotifyWebAPI
     public function myAlbumsContains($albums)
     {
         $albums = $this->uriToId($albums, 'album');
-        $albums = implode(',', (array) $albums);
+        $albums = $this->toCommaString($albums);
 
         $options = [
             'ids' => $albums,
@@ -1445,7 +1495,7 @@ class SpotifyWebAPI
     public function myShowsContains($shows)
     {
         $shows = $this->uriToId($shows, 'show');
-        $shows = implode(',', (array) $shows);
+        $shows = $this->toCommaString($shows);
 
         $options = [
             'ids' => $shows,
@@ -1469,7 +1519,7 @@ class SpotifyWebAPI
     public function myTracksContains($tracks)
     {
         $tracks = $this->uriToId($tracks, 'track');
-        $tracks = implode(',', (array) $tracks);
+        $tracks = $this->toCommaString($tracks);
 
         $options = [
             'ids' => $tracks,
@@ -1535,12 +1585,13 @@ class SpotifyWebAPI
      * - string context_uri Optional. URI of the context to play, for example an album.
      * - array uris Optional. Spotify track URIs to play.
      * - object offset Optional. Indicates from where in the context playback should start.
+     * - int position_ms. Optional. Indicates the position to start playback from.
      *
      * @return bool Whether the playback was successfully started.
      */
     public function play($deviceId = '', $options = [])
     {
-        $options = json_encode((object) $options);
+        $options = json_encode($options);
 
         $headers = [
             'Content-Type' => 'application/json',
@@ -1699,10 +1750,9 @@ class SpotifyWebAPI
      */
     public function search($query, $type, $options = [])
     {
-        $type = implode(',', (array) $type);
         $options = array_merge((array) $options, [
             'q' => $query,
-            'type' => $type,
+            'type' => $this->toCommaString($type),
         ]);
 
         $uri = '/v1/search';
@@ -1782,8 +1832,10 @@ class SpotifyWebAPI
      */
     public function shuffle($options)
     {
-        $options = (array) $options;
-        $options['state'] = $options['state'] ? 'true' : 'false';
+        $options = array_merge((array) $options, [
+            'state' => $options['state'] ? 'true' : 'false',
+        ]);
+
         $options = http_build_query($options, null, '&');
 
         // We need to manually append data to the URI since it's a PUT request
@@ -1906,7 +1958,7 @@ class SpotifyWebAPI
 
         if (isset($options['ids'])) {
             $options['ids'] = $this->uriToId($options['ids'], 'user');
-            $options['ids'] = implode(',', (array) $options['ids']);
+            $options['ids'] = $this->toCommaString($options['ids']);
         }
 
         $playlistId = $this->uriToId($playlistId, 'playlist');

@@ -25,6 +25,16 @@ class SessionTest extends PHPUnit\Framework\TestCase
         return $stub;
     }
 
+    public function testGenerateState()
+    {
+        $session = new SpotifyWebAPI\Session($this->clientID, $this->clientSecret, $this->redirectURI);
+
+        $state = $session->generateState();
+
+        $this->assertEquals(16, strlen($state));
+        $this->assertIsString($state);
+    }
+
     public function testGetAuthorizeUrl()
     {
         $session = new SpotifyWebAPI\Session($this->clientID, $this->clientSecret, $this->redirectURI);
