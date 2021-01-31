@@ -25,6 +25,11 @@ class SpotifyWebAPI
     public function __construct($options = [], $session = null, $request = null)
     {
         if ($options instanceof Request) {
+            trigger_error(
+                'Passing a Request instance as the first argument to new SpotifyWebAPI() is deprecated.',
+                E_USER_DEPRECATED
+            );
+
             $request = $options;
         } else {
             $this->setOptions($options);
@@ -327,7 +332,7 @@ class SpotifyWebAPI
      */
     public function changeVolume($options)
     {
-        $options = http_build_query($options, null, '&');
+        $options = http_build_query($options, '', '&');
 
         // We need to manually append data to the URI since it's a PUT request
         $uri = '/v1/me/player/volume?' . $options;
@@ -713,7 +718,13 @@ class SpotifyWebAPI
         $options = (array) $options;
 
         if (isset($options['album_type']) || isset($options['include_groups'])) {
-            // TODO: Temp check, remove "album_type" in next major version
+            if (isset($options['album_type'])) {
+                $msg = 'The "album_type" option passed to SpotifyWebAPI::getArtistAlbums() is deprecated';
+                $msg .= ', use "include_groups" instead.';
+
+                trigger_error($msg, E_USER_DEPRECATED);
+            }
+
             $values = $options['album_type'] ?? $options['include_groups'];
 
             $options['include_groups'] = $this->toCommaString($values);
@@ -1696,7 +1707,7 @@ class SpotifyWebAPI
      */
     public function repeat($options)
     {
-        $options = http_build_query($options, null, '&');
+        $options = http_build_query($options, '', '&');
 
         // We need to manually append data to the URI since it's a PUT request
         $uri = '/v1/me/player/repeat?' . $options;
@@ -1774,7 +1785,7 @@ class SpotifyWebAPI
      */
     public function seek($options)
     {
-        $options = http_build_query($options, null, '&');
+        $options = http_build_query($options, '', '&');
 
         // We need to manually append data to the URI since it's a PUT request
         $uri = '/v1/me/player/seek?' . $options;
@@ -1836,7 +1847,7 @@ class SpotifyWebAPI
             'state' => $options['state'] ? 'true' : 'false',
         ]);
 
-        $options = http_build_query($options, null, '&');
+        $options = http_build_query($options, '', '&');
 
         // We need to manually append data to the URI since it's a PUT request
         $uri = '/v1/me/player/shuffle?' . $options;
